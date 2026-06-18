@@ -142,3 +142,26 @@ def main() -> None:
         print(f"Q: {q}\n  winner={st['winner']}")
 
 
+if __name__ == "__main__":
+    main()
+
+# ===== Nuances to absorb =====
+#
+# Why fork() beats "issue N separate vLLM calls with prefix caching":
+#   In vLLM, you submit N prompts, the scheduler hashes their prefixes, and
+#   reuses KV blocks where it can. That works — but you've paid the cost of
+#   N tokenization passes, N scheduler entries, and N response handling
+#   passes. With SGLang fork(), the runtime knows from program structure
+#   that N branches share a prefix; there's no hashing dance, just direct
+#   shared pointers in the radix tree.
+#
+# When fork() is the WRONG tool:
+#   If your "branches" have substantially different prefixes (e.g. different
+#   system prompts), fork() doesn't help — the shared region is empty.
+#   You'd just use separate runs.
+#
+# Determinism warning:
+#   sgl.select() uses logprob scoring under FlashAttention. Token-level
+#   batching can produce tiny non-determinism in tied cases. If you need
+#   bit-exact repro, set temperature=0 on gen() and use single-request mode.
+
