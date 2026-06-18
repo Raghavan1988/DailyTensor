@@ -103,3 +103,61 @@ def benchmark(llm: LLM, prompts: list[str], label: str) -> RunResult:
 
     total_tokens = sum(len(o.outputs[0].token_ids) for o in outs)
     return RunResult(label, wall, total_tokens)
+
+
+
+
+def main() -> None:
+    # Important: don't co-locate two LLM() instances in one process. Each one
+    # pre-allocates its own KV pool (gpu_memory_utilization fraction of VRAM),
+    # so two of them will OOM on most consumer GPUs. We run them in sequence,
+    # deleting the first before constructing the second.
+    prompts = [build_prompt(a, b) for a, b in PAIRS]
+
+    # --- Run 1: prefix caching OFF (baseline) ---
+    llm = LLM(
+        model="Qwen/Qwen2.5-7B-Instruct",
+        enable_prefix_caching=False,
+        # gpu_memory_utilization: fraction of VRAM reserved for the KV pool.
+        # Higher = more concurrent sequences batched together = higher
+        # throughput, but less headroom for activations / temporary buffers.
+        # 0.85 is safe on an H100. Drop to 0.55 on a 24GB consumer card.
+        gpu_memory_utilization=0.85,
+        # max_model_len: cap to your actual prompt length. Smaller cap means
+        # smaller KV blocks budget per sequence, which means more concurrency.
+        max_model_len=8192,
+    )
+    baseline = benchmark(llm, prompts, "prefix_caching=OFF")
+    del llm  # release VRAM before the next engine
+
+    # --- Run 2: prefix caching ON ---
+    llm = LLM(
+        model="Qwen/Qwen2.5-7B-Instruct",
+        enable_prefix_caching=True,
+        gpu_memory_utilization=0.85,
+        max_model_len=8192,
+        # block_size: the granularity at which prefix dedup happens. Default 16.
+        # Larger blocks (e.g. 32) = fewer hash lookups but coarser sharing
+        # (you only share if prefixes match in 32-token chunks). Tune only if
+        # you know your prefixes have a natural alignment.
+        block_size=16,
+    )
+    cached = benchmark(llm, prompts, "prefix_caching=ON")
+    del llm
+
+    print(f"{baseline.label:24s} wall={baseline.wall_seconds:.2f}s  "
+          f"throughput={baseline.throughput:.1f} tok/s")
+    print(f"{cached.label:24s} wall={cached.wall_seconds:.2f}s  "
+          f"throughput={cached.throughput:.1f} tok/s")
+    print(f"speedup: {baseline.wall_seconds / cached.wall_seconds:.2f}x")
+
+    # Expected: ON is several times faster. The ratio depends on prefix length
+    # vs. suffix length. Try halving the `* 30` multiplier above and re-run —
+    # the speedup will shrink. That's the lesson: prefix caching is a free
+    # lunch ONLY in prefix-heavy workloads. Arenas, agents, and RAG with a
+    # fixed system prompt qualify; chatty multi-turn conversations less so.
+
+
+if __name__ == "__main__":
+    main()
+
