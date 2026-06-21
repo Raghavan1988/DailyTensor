@@ -1,4 +1,3 @@
-```python
 """
 Fixed workload load tester for InferTutor Arena.
 
