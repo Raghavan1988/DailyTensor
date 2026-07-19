@@ -7,4 +7,5 @@ def dot_product(x, y):
     """
     X = np.asarray(x)
     Y = np.asarray(y)
+    ## NP has X.dot(y) method
     return X.dot(Y)
