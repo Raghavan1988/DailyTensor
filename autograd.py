@@ -875,6 +875,58 @@ def example_6_softmax_cross_entropy():
           f"  [{'ok' if err < 1e-12 else 'FAIL'}]")
 
 
+def example_7_mlp_vs_pytorch():
+    """Full pipeline: 2-layer MLP classifier with softmax cross-entropy,
+    trained with SGD. At step 0 every parameter gradient is compared
+    against real torch.autograd on identical weights."""
+    print("\n[Example 7] MLP classifier — our autograd vs torch.autograd")
+    rng = np.random.default_rng(7)
+    N, D, H, C = 32, 2, 16, 3
+    # Three Gaussian blobs.
+    centers = np.array([[2.0, 0.0], [-1.0, 1.7], [-1.0, -1.7]])
+    labels = rng.integers(0, C, size=N)
+    Xn = centers[labels] + 0.5 * rng.normal(size=(N, D))
+    onehot = np.eye(C)[labels]
+
+    init = {
+        "W1": rng.normal(size=(D, H)) * 0.5, "b1": np.zeros(H),
+        "W2": rng.normal(size=(H, C)) * 0.5, "b2": np.zeros(C),
+    }
+    P = {k: Tensor(v.copy(), requires_grad=True) for k, v in init.items()}
+    X, Y = Tensor(Xn), Tensor(onehot)
+
+    def loss_fn():
+        h = (X @ P["W1"] + P["b1"]).tanh()
+        p = (h @ P["W2"] + P["b2"]).softmax()
+        return -(Y * p.log()).sum() * (1.0 / N), p
+
+    try:
+        import torch
+        T = {k: torch.tensor(v, requires_grad=True) for k, v in init.items()}
+        h = torch.tanh(torch.tensor(Xn) @ T["W1"] + T["b1"])
+        logits = h @ T["W2"] + T["b2"]
+        torch.nn.functional.cross_entropy(logits, torch.tensor(labels)).backward()
+        loss, _ = loss_fn()
+        loss.backward()
+        for k in init:
+            err = float(np.max(np.abs(P[k].grad - T[k].grad.numpy())))
+            print(f"  [{'ok' if err < 1e-10 else 'FAIL'}] d{k:2s}  max |ours - torch| = {err:.2e}")
+    except ImportError:
+        print("  (torch not installed: skipping comparison)")
+
+    lr = 0.5
+    for step in range(201):
+        for t in P.values():
+            t.grad = None
+        loss, p = loss_fn()
+        if step % 50 == 0:
+            acc = float(np.mean(p.data.argmax(axis=1) == labels))
+            print(f"  step {step:3d}  loss={float(loss.data):.4f}  acc={acc:.2f}")
+        loss.backward()
+        for t in P.values():
+            t.data -= lr * t.grad
+
+
 if __name__ == "__main__":
     _demo_scalar()
     _demo_tensor_checks()
@@ -886,5 +938,6 @@ if __name__ == "__main__":
     example_4_weight_sharing()
     example_5_stop_gradient()
     example_6_softmax_cross_entropy()
+    example_7_mlp_vs_pytorch()
     print("\nDone. Open autograd.py and read it top to bottom — the comments")
     print("are the lesson; the code is the engine.")
