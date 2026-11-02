@@ -1067,6 +1067,90 @@ def example_9_transformer_block():
     print(f"  [{'ok' if leak == 0.0 else 'FAIL'}] causality: |d out[0] / d x[1:]| = {leak:.1e}")
 
 
+class Checkpoint(Function):
+    """Gradient checkpointing (torch.utils.checkpoint), built on the engine.
+
+    Normal autograd keeps every intermediate activation alive until
+    backward: memory O(depth). Checkpointing runs a segment's forward
+    under no_grad (activations freed immediately) and saves ONLY its
+    inputs. In backward it re-runs the segment with grad enabled,
+    backprops through the fresh mini-graph, and returns input grads.
+
+    Trade-off: ~1 extra forward per segment (~+33% compute) for memory
+    O(depth / k + k) with k segments; k = sqrt(depth) gives O(sqrt(depth)).
+
+    Parameters used inside `fn` are closure leaves, not parents: the
+    inner backward accumulates straight into their .grad (same as
+    PyTorch). Caveat to mention in interviews: fn must be deterministic
+    (dropout needs its RNG state replayed) or recomputation diverges.
+    """
+
+    def forward(self, *xs):
+        self.save_for_backward(*xs)
+        with no_grad():
+            return self.fn(*[Tensor(x) for x in xs]).data
+
+    def backward(self, grad):
+        inputs = [Tensor(x, requires_grad=True) for x in self.saved]
+        self.fn(*inputs).backward(grad)            # recompute + local backprop
+        return tuple(t.grad for t in inputs)
+
+
+def checkpoint(fn, *tensors):
+    cls = type("Checkpoint", (Checkpoint,), {"fn": staticmethod(fn)})
+    return cls.apply(*tensors)
+
+
+def _graph_stats(out):
+    """(#nodes, bytes of saved activations) reachable from `out`."""
+    seen, stack, nbytes = set(), [out], 0
+    while stack:
+        t = stack.pop()
+        if id(t) in seen or t._ctx is None:
+            continue
+        seen.add(id(t))
+        nbytes += sum(a.nbytes for a in t._ctx.saved)
+        stack.extend(t._ctx.parents)
+    return len(seen), nbytes
+
+
+def example_10_gradient_checkpointing():
+    """Deep 16-layer residual MLP: identical grads, much smaller graph."""
+    print("\n[Example 10] gradient checkpointing: trade compute for memory")
+    rng = np.random.default_rng(10)
+    L, B, D, seg = 16, 64, 32, 4
+    Ws = [Tensor(rng.normal(size=(D, D)) / np.sqrt(D), requires_grad=True)
+          for _ in range(L)]
+    x0 = rng.normal(size=(B, D))
+
+    def layers(lo, hi):
+        def f(h):
+            for W in Ws[lo:hi]:
+                h = h + (h @ W).tanh()             # residual layer
+            return h
+        return f
+
+    def run(use_ckpt):
+        for W in Ws:
+            W.grad = None
+        h = Tensor(x0, requires_grad=True)
+        for s in range(0, L, seg):
+            f = layers(s, s + seg)
+            h = checkpoint(f, h) if use_ckpt else f(h)
+        loss = (h ** 2).mean()
+        nodes, nbytes = _graph_stats(loss)
+        loss.backward()
+        return [W.grad.copy() for W in Ws], nodes, nbytes
+
+    g_full, n_full, b_full = run(False)
+    g_ckpt, n_ckpt, b_ckpt = run(True)
+    err = max(float(np.max(np.abs(a - b))) for a, b in zip(g_full, g_ckpt))
+    print(f"  plain:        {n_full:3d} graph nodes, {b_full / 1024:7.1f} KiB saved activations")
+    print(f"  checkpointed: {n_ckpt:3d} graph nodes, {b_ckpt / 1024:7.1f} KiB saved activations"
+          f"  (+ one segment's worth, transiently, during backward)")
+    print(f"  [{'ok' if err < 1e-12 else 'FAIL'}] grads identical: max err = {err:.2e}")
+
+
 if __name__ == "__main__":
     _demo_scalar()
     _demo_tensor_checks()
@@ -1081,5 +1165,6 @@ if __name__ == "__main__":
     example_7_mlp_vs_pytorch()
     example_8_custom_layernorm()
     example_9_transformer_block()
+    example_10_gradient_checkpointing()
     print("\nDone. Open autograd.py and read it top to bottom — the comments")
     print("are the lesson; the code is the engine.")
