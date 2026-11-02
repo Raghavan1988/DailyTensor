@@ -989,6 +989,84 @@ def example_8_custom_layernorm():
         print("  (torch not installed: skipping comparison)")
 
 
+def example_9_transformer_block():
+    """Pre-LN causal Transformer block, gradients checked vs PyTorch:
+
+        a   = LN(x) * g1 + b1
+        x   = x + MHA_causal(a)                  # residual 1
+        m   = LN(x) * g2 + b2
+        out = x + relu(m @ W1 + c1) @ W2 + c2     # residual 2
+
+    Interview points exercised here:
+      * Causal mask = add -inf (here -1e9) above the diagonal BEFORE
+        softmax; masked entries get A=0, hence zero gradient. The mask
+        is a constant: no grad flows into it.
+      * Multi-head without reshape/concat: concat(heads) @ Wo equals
+        sum_h head_h @ Wo[h*dh:(h+1)*dh]. Same math, same grads.
+      * Residuals are the sum rule: x feeds both the skip path and the
+        sublayer, so dx = d(skip) + d(sublayer). This is why deep
+        residual nets don't vanish — the skip contributes identity.
+    """
+    print("\n[Example 9] causal multi-head Transformer block vs torch")
+    rng = np.random.default_rng(9)
+    T, D, Hh, F = 5, 8, 2, 16
+    dh = D // Hh
+    shapes = {"g1": (D,), "b1": (D,), "g2": (D,), "b2": (D,),
+              "W1": (D, F), "c1": (F,), "W2": (F, D), "c2": (D,)}
+    for h in range(Hh):
+        shapes.update({f"Wq{h}": (D, dh), f"Wk{h}": (D, dh),
+                       f"Wv{h}": (D, dh), f"Wo{h}": (dh, D)})
+    init = {k: rng.normal(size=s) * 0.4 for k, s in shapes.items()}
+    init["g1"] += 1.0
+    init["g2"] += 1.0
+    x0 = rng.normal(size=(T, D))
+    dout = rng.normal(size=(T, D))
+    mask = np.triu(np.full((T, T), -1e9), k=1)
+
+    def block(x, P, ln, softmax, relu, const):
+        a = ln(x) * P["g1"] + P["b1"]
+        attn = 0
+        for h in range(Hh):
+            q, k, v = a @ P[f"Wq{h}"], a @ P[f"Wk{h}"], a @ P[f"Wv{h}"]
+            s = (q @ k.T) * (1.0 / np.sqrt(dh)) + const(mask)
+            attn = attn + (softmax(s) @ v) @ P[f"Wo{h}"]
+        x = x + attn
+        m = ln(x) * P["g2"] + P["b2"]
+        return x + relu(m @ P["W1"] + P["c1"]) @ P["W2"] + P["c2"]
+
+    P = {k: Tensor(v.copy(), requires_grad=True) for k, v in init.items()}
+    x = Tensor(x0.copy(), requires_grad=True)
+    out = block(x, P, LayerNorm.apply, lambda s: s.softmax(),
+                lambda z: z.relu(), Tensor)
+    (out * Tensor(dout)).sum().backward()
+
+    try:
+        import torch
+        F_ = torch.nn.functional
+        Pt = {k: torch.tensor(v, requires_grad=True) for k, v in init.items()}
+        xt = torch.tensor(x0, requires_grad=True)
+        ot = block(xt, Pt, lambda z: F_.layer_norm(z, (D,), eps=1e-5),
+                   lambda s: torch.softmax(s, -1), torch.relu, torch.tensor)
+        (ot * torch.tensor(dout)).sum().backward()
+        err = max(float(np.max(np.abs(P[k].grad - Pt[k].grad.numpy()))) for k in P)
+        err = max(err, float(np.max(np.abs(x.grad - xt.grad.numpy()))))
+        print(f"  [{'ok' if err < 1e-9 else 'FAIL'}] {len(P) + 1} grads (x + {len(P)} params)"
+              f"  max |ours - torch| = {err:.2e}")
+    except ImportError:
+        print("  (torch not installed: skipping comparison)")
+
+    # Causality check: d out[0] / d x[t>0] must be exactly zero.
+    for t in P.values():
+        t.grad = None
+    x.grad = None
+    sel = np.zeros((T, D)); sel[0] = 1.0
+    out = block(x, P, LayerNorm.apply, lambda s: s.softmax(),
+                lambda z: z.relu(), Tensor)
+    (out * Tensor(sel)).sum().backward()
+    leak = float(np.max(np.abs(x.grad[1:])))
+    print(f"  [{'ok' if leak == 0.0 else 'FAIL'}] causality: |d out[0] / d x[1:]| = {leak:.1e}")
+
+
 if __name__ == "__main__":
     _demo_scalar()
     _demo_tensor_checks()
@@ -1002,5 +1080,6 @@ if __name__ == "__main__":
     example_6_softmax_cross_entropy()
     example_7_mlp_vs_pytorch()
     example_8_custom_layernorm()
+    example_9_transformer_block()
     print("\nDone. Open autograd.py and read it top to bottom — the comments")
     print("are the lesson; the code is the engine.")
