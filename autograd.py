@@ -802,6 +802,22 @@ def example_2_neuron():
     print(f"  db ={b.grad:.4f} (expected {local:.4f})")
 
 
+def example_3_linear_regression_grad():
+    """Tensor MSE for y_hat = X @ w.  Closed form:
+    L = mean((Xw - y)^2)  =>  dL/dw = (2/N) X^T (Xw - y)."""
+    print("\n[Example 3] linear regression gradient vs closed form")
+    rng = np.random.default_rng(3)
+    X = rng.normal(size=(8, 3))
+    y = rng.normal(size=(8, 1))
+    w = Tensor(rng.normal(size=(3, 1)), requires_grad=True)
+    loss = ((Tensor(X) @ w - Tensor(y)) ** 2).mean()
+    loss.backward()
+    closed = (2.0 / X.shape[0]) * X.T @ (X @ w.data - y)
+    err = float(np.max(np.abs(w.grad - closed)))
+    print(f"  loss={float(loss.data):.4f}  max |autograd - closed form| = {err:.2e}"
+          f"  [{'ok' if err < 1e-12 else 'FAIL'}]")
+
+
 if __name__ == "__main__":
     _demo_scalar()
     _demo_tensor_checks()
@@ -809,5 +825,6 @@ if __name__ == "__main__":
     _demo_attention()
     example_1_polynomial()
     example_2_neuron()
+    example_3_linear_regression_grad()
     print("\nDone. Open autograd.py and read it top to bottom — the comments")
     print("are the lesson; the code is the engine.")
