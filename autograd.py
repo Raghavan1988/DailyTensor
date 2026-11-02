@@ -818,6 +818,25 @@ def example_3_linear_regression_grad():
           f"  [{'ok' if err < 1e-12 else 'FAIL'}]")
 
 
+def example_4_weight_sharing():
+    """Sum rule with tensors: the SAME W is used in two layers.
+    h = relu(x @ W);  out = h @ W;  L = sum(out).
+    dW must be the sum of the grads from both uses — the engine does
+    this automatically by accumulating into W.grad."""
+    print("\n[Example 4] weight sharing (one W used twice) — sum rule")
+    rng = np.random.default_rng(4)
+    x = Tensor(rng.normal(size=(2, 4)))
+    W = Tensor(rng.normal(size=(4, 4)), requires_grad=True)
+    _check("shared W", lambda: ((x @ W).relu() @ W).sum(), [W])
+
+    # Make the two contributions explicit by using two independent copies.
+    W1 = Tensor(W.data.copy(), requires_grad=True)
+    W2 = Tensor(W.data.copy(), requires_grad=True)
+    ((x @ W1).relu() @ W2).sum().backward()
+    err = float(np.max(np.abs(W.grad - (W1.grad + W2.grad))))
+    print(f"  dW == dW_layer1 + dW_layer2 ?  max err = {err:.2e}")
+
+
 if __name__ == "__main__":
     _demo_scalar()
     _demo_tensor_checks()
@@ -826,5 +845,6 @@ if __name__ == "__main__":
     example_1_polynomial()
     example_2_neuron()
     example_3_linear_regression_grad()
+    example_4_weight_sharing()
     print("\nDone. Open autograd.py and read it top to bottom — the comments")
     print("are the lesson; the code is the engine.")
