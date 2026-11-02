@@ -853,6 +853,28 @@ def example_5_stop_gradient():
     print(f"  under no_grad: c.requires_grad={c.requires_grad}, grad_fn={c.grad_fn}")
 
 
+def example_6_softmax_cross_entropy():
+    """Softmax + cross-entropy built from primitives (softmax, log, mul,
+    mean). The fused closed form is the famous:
+        dL/dlogits = (softmax(logits) - onehot) / N
+    Autograd recovers it without being told."""
+    print("\n[Example 6] softmax cross-entropy: dlogits = (p - onehot) / N")
+    rng = np.random.default_rng(6)
+    N, C = 5, 4
+    logits = Tensor(rng.normal(size=(N, C)), requires_grad=True)
+    labels = rng.integers(0, C, size=N)
+    onehot = np.eye(C)[labels]
+
+    p = logits.softmax()
+    loss = -(Tensor(onehot) * p.log()).sum() * (1.0 / N)
+    loss.backward()
+
+    closed = (p.data - onehot) / N
+    err = float(np.max(np.abs(logits.grad - closed)))
+    print(f"  loss={float(loss.data):.4f}  max |autograd - closed form| = {err:.2e}"
+          f"  [{'ok' if err < 1e-12 else 'FAIL'}]")
+
+
 if __name__ == "__main__":
     _demo_scalar()
     _demo_tensor_checks()
@@ -863,5 +885,6 @@ if __name__ == "__main__":
     example_3_linear_regression_grad()
     example_4_weight_sharing()
     example_5_stop_gradient()
+    example_6_softmax_cross_entropy()
     print("\nDone. Open autograd.py and read it top to bottom — the comments")
     print("are the lesson; the code is the engine.")
