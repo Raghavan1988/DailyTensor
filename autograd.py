@@ -927,6 +927,68 @@ def example_7_mlp_vs_pytorch():
             t.data -= lr * t.grad
 
 
+class LayerNorm(Function):
+    """Row-wise LayerNorm (no affine; multiply/add gamma, beta outside).
+
+        mu = mean(x),  var = mean((x-mu)^2),  xhat = (x-mu) / sqrt(var+eps)
+
+    Interview-grade VJP derivation (D = row width, g = dL/dxhat):
+        dx = (1/sigma) * (g - mean(g) - xhat * mean(g * xhat))
+    Intuition: subtract the component of g along the all-ones direction
+    (mean removal) and along xhat (variance normalization) — LayerNorm's
+    output is invariant to those two directions, so they get zero grad.
+    One fused kernel, O(D) memory, vs ~8 primitive nodes if composed.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.eps = 1e-5
+
+    def forward(self, x):
+        mu = x.mean(axis=-1, keepdims=True)
+        var = ((x - mu) ** 2).mean(axis=-1, keepdims=True)
+        inv_sigma = 1.0 / np.sqrt(var + self.eps)
+        xhat = (x - mu) * inv_sigma
+        self.save_for_backward(xhat, inv_sigma)
+        return xhat
+
+    def backward(self, grad):
+        xhat, inv_sigma = self.saved
+        g_mean = grad.mean(axis=-1, keepdims=True)
+        gx_mean = (grad * xhat).mean(axis=-1, keepdims=True)
+        return inv_sigma * (grad - g_mean - xhat * gx_mean)
+
+
+def example_8_custom_layernorm():
+    """Extending the engine: a new op is just forward + VJP. Verify it
+    with finite differences AND against torch.nn.functional.layer_norm."""
+    print("\n[Example 8] custom LayerNorm Function with a hand-derived VJP")
+    rng = np.random.default_rng(8)
+    x = Tensor(rng.normal(size=(4, 6)) * 3 + 1, requires_grad=True)
+    gamma = Tensor(rng.normal(size=6), requires_grad=True)
+    beta = Tensor(rng.normal(size=6), requires_grad=True)
+    w = Tensor(rng.normal(size=(4, 6)))       # random projection -> scalar loss
+
+    f = lambda: ((LayerNorm.apply(x) * gamma + beta) * w).sum()
+    _check("layernorm", f, [x, gamma, beta])
+
+    try:
+        import torch
+        xt = torch.tensor(x.data, requires_grad=True)
+        gt = torch.tensor(gamma.data, requires_grad=True)
+        bt = torch.tensor(beta.data, requires_grad=True)
+        y = torch.nn.functional.layer_norm(xt, (6,), gt, bt, eps=1e-5)
+        (y * torch.tensor(w.data)).sum().backward()
+        for t in (x, gamma, beta):
+            t.grad = None
+        f().backward()
+        err = max(float(np.max(np.abs(a.grad - b.grad.numpy())))
+                  for a, b in [(x, xt), (gamma, gt), (beta, bt)])
+        print(f"  [{'ok' if err < 1e-10 else 'FAIL'}] vs torch layer_norm      max err = {err:.2e}")
+    except ImportError:
+        print("  (torch not installed: skipping comparison)")
+
+
 if __name__ == "__main__":
     _demo_scalar()
     _demo_tensor_checks()
@@ -939,5 +1001,6 @@ if __name__ == "__main__":
     example_5_stop_gradient()
     example_6_softmax_cross_entropy()
     example_7_mlp_vs_pytorch()
+    example_8_custom_layernorm()
     print("\nDone. Open autograd.py and read it top to bottom — the comments")
     print("are the lesson; the code is the engine.")
