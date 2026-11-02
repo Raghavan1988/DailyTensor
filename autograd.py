@@ -837,6 +837,22 @@ def example_4_weight_sharing():
     print(f"  dW == dW_layer1 + dW_layer2 ?  max err = {err:.2e}")
 
 
+def example_5_stop_gradient():
+    """detach() and no_grad() cut the graph.
+    L = sum(a * b.detach())  =>  dL/da = b,  b gets no gradient.
+    Used for target networks, EMA teachers, straight-through tricks."""
+    print("\n[Example 5] stop-gradient with detach() and no_grad()")
+    a = Tensor([1.0, 2.0, 3.0], requires_grad=True)
+    b = Tensor([4.0, 5.0, 6.0], requires_grad=True)
+    (a * b.detach()).sum().backward()
+    print(f"  da={a.grad}  (expected b = [4, 5, 6])")
+    print(f"  db={b.grad}  (expected None — detached)")
+
+    with no_grad():
+        c = a * b
+    print(f"  under no_grad: c.requires_grad={c.requires_grad}, grad_fn={c.grad_fn}")
+
+
 if __name__ == "__main__":
     _demo_scalar()
     _demo_tensor_checks()
@@ -846,5 +862,6 @@ if __name__ == "__main__":
     example_2_neuron()
     example_3_linear_regression_grad()
     example_4_weight_sharing()
+    example_5_stop_gradient()
     print("\nDone. Open autograd.py and read it top to bottom — the comments")
     print("are the lesson; the code is the engine.")
