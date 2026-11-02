@@ -774,10 +774,24 @@ def _demo_attention():
     print("  exactly what Function.save_for_backward + VJPs computed here.")
 
 
+# ======================================================================
+# Part 5 — Worked examples, simple -> complex
+# ======================================================================
+
+def example_1_polynomial():
+    """f(x) = x^2 + 3x at x=2.  df/dx = 2x + 3 = 7."""
+    print("\n[Example 1] scalar polynomial f(x) = x^2 + 3x at x=2")
+    x = Value(2.0)
+    f = x ** 2 + 3 * x
+    f.backward()
+    print(f"  f={f.data:.1f}  df/dx={x.grad:.1f}  (expected 7.0)")
+
+
 if __name__ == "__main__":
     _demo_scalar()
     _demo_tensor_checks()
     _demo_mlp()
     _demo_attention()
+    example_1_polynomial()
     print("\nDone. Open autograd.py and read it top to bottom — the comments")
     print("are the lesson; the code is the engine.")
