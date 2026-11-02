@@ -787,11 +787,27 @@ def example_1_polynomial():
     print(f"  f={f.data:.1f}  df/dx={x.grad:.1f}  (expected 7.0)")
 
 
+def example_2_neuron():
+    """One neuron: y = tanh(w1*x1 + w2*x2 + b). Hand-derived grads:
+    dy/dw_i = (1 - y^2) * x_i,  dy/db = 1 - y^2."""
+    print("\n[Example 2] single neuron y = tanh(w1*x1 + w2*x2 + b)")
+    x1, x2 = Value(2.0), Value(0.0)
+    w1, w2, b = Value(-3.0), Value(1.0), Value(6.8813735870195432)
+    y = (w1 * x1 + w2 * x2 + b).tanh()
+    y.backward()
+    local = 1.0 - y.data ** 2
+    print(f"  y={y.data:.4f}  local tanh' = 1 - y^2 = {local:.4f}")
+    print(f"  dw1={w1.grad:.4f} (expected {local * x1.data:.4f})")
+    print(f"  dw2={w2.grad:.4f} (expected {local * x2.data:.4f})  <- x2=0 kills it")
+    print(f"  db ={b.grad:.4f} (expected {local:.4f})")
+
+
 if __name__ == "__main__":
     _demo_scalar()
     _demo_tensor_checks()
     _demo_mlp()
     _demo_attention()
     example_1_polynomial()
+    example_2_neuron()
     print("\nDone. Open autograd.py and read it top to bottom — the comments")
     print("are the lesson; the code is the engine.")
