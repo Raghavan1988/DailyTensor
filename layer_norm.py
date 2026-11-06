@@ -16,6 +16,8 @@ Requirements:
      divide-by-zero when a row is constant.
   4. Return a float64 array of the same shape. Each row should have
      ~0 mean and ~1 standard deviation.
+  5. Optionally apply the learnable affine transform used in practice:
+     y = gamma * LN(x) + beta, with gamma/beta of shape (features,).
 
 Example:
     >>> x = np.array([[1.0, 2.0, 3.0, 4.0]])
@@ -27,7 +29,7 @@ Example:
 import numpy as np
 
 
-def layer_norm(x, eps=1e-5):
+def layer_norm(x, eps=1e-5, gamma=None, beta=None):
     # Convert input to float64 so the division returns a precise float array.
     x = np.asarray(x, dtype=np.float64)
     # Mean across the feature axis for each sample; keepdims=True lets it broadcast.
@@ -35,4 +37,10 @@ def layer_norm(x, eps=1e-5):
     # Variance across the feature axis for each sample.
     var = np.var(x, axis=-1, keepdims=True)
     # Normalize each row to zero mean / unit variance; eps stabilizes when var ~ 0.
-    return (x - mean) / np.sqrt(var + eps)
+    y = (x - mean) / np.sqrt(var + eps)
+    # Optional learnable scale and shift, broadcast across the feature axis.
+    if gamma is not None:
+        y = y * np.asarray(gamma, dtype=np.float64)
+    if beta is not None:
+        y = y + np.asarray(beta, dtype=np.float64)
+    return y
