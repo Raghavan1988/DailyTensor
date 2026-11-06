@@ -13,6 +13,9 @@ Requirements:
   3. Apply softmax along the last axis so each row of attention weights
      sums to 1.
   4. Return the output array of shape (n_q, d_v).
+  5. Optionally accept an additive `mask` of shape (n_q, n_k) (e.g. from
+     causal_mask.py) that is added to the scores before the softmax;
+     -inf entries block attention to those keys.
 
 Example:
     >>> Q = np.array([[1.0, 0.0]])
@@ -25,7 +28,7 @@ Example:
 import numpy as np
 
 
-def scaled_dot_product_attention(Q, K, V):
+def scaled_dot_product_attention(Q, K, V, mask=None):
     # Convert inputs to float64 arrays so matmul and division are precise.
     Q = np.asarray(Q, dtype=np.float64)
     K = np.asarray(K, dtype=np.float64)
@@ -34,6 +37,9 @@ def scaled_dot_product_attention(Q, K, V):
     d_k = Q.shape[-1]
     # Compute raw attention scores: each query scored against every key, then scaled.
     scores = Q @ K.T / np.sqrt(d_k)
+    # Additive mask: 0 keeps a position, -inf removes it after the softmax.
+    if mask is not None:
+        scores = scores + np.asarray(mask, dtype=np.float64)
     # Numerically stable softmax along the last axis — subtract row max to prevent overflow.
     scores -= np.max(scores, axis=-1, keepdims=True)
     weights = np.exp(scores)
