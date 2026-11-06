@@ -1,35 +1,35 @@
 """
-Problem: L2 Normalize (NumPy)
------------------------------
-Scale a vector (or each row of a matrix) to have L2 norm = 1:
+Problem: Mean Absolute Error (NumPy)
+------------------------------------
+Compute the mean absolute error between true values and predictions:
 
-    normalize(x) = x / ||x||_2
+    MAE = mean( |y_true - y_pred| )
+
+Unlike MSE, MAE penalizes errors linearly, so it is less sensitive to
+outliers.
 
 Requirements:
-  1. Accept a 1D or 2D input (list or NumPy array).
-  2. For 2D input, normalize each row independently.
-  3. If a vector has norm 0, return all zeros for it (do NOT divide by zero).
-  4. Return a float64 NumPy array with the same shape as the input.
+  1. Accept lists or NumPy arrays of equal shape.
+  2. Return a single Python float.
+  3. Raise ValueError if shapes don't match.
 
 Examples:
-    >>> l2_normalize([3.0, 4.0])
-    array([0.6, 0.8])
+    >>> mae([1, 2, 3], [1, 2, 3])
+    0.0
 
-    >>> l2_normalize([[3, 4], [0, 0], [1, 0]])
-    array([[0.6, 0.8],
-           [0. , 0. ],
-           [1. , 0. ]])
+    >>> mae([1, 2, 3], [2, 4, 6])
+    2.0
 """
 
 import numpy as np
 
 
-def l2_normalize(x):
-    # Convert input to a float64 array so the division produces floats.
-    x = np.asarray(x, dtype=np.float64)
-    # Compute L2 norm along the last axis; keepdims=True lets it broadcast for division.
-    norms = np.linalg.norm(x, axis=-1, keepdims=True)
-    # Replace any zero norms with 1 to avoid division by zero (we'll zero those rows out below).
-    safe_norms = np.where(norms == 0, 1.0, norms)
-    # Divide every element by its row's norm (or 1 if the row was all zeros).
-    return x / safe_norms
+def mae(y_true, y_pred):
+    # Convert both inputs to float64 NumPy arrays so subtraction is vectorized.
+    y_true = np.asarray(y_true, dtype=np.float64)
+    y_pred = np.asarray(y_pred, dtype=np.float64)
+    # Guard against silent broadcasting bugs by requiring matching shapes up front.
+    if y_true.shape != y_pred.shape:
+        raise ValueError(f"shape mismatch: {y_true.shape} vs {y_pred.shape}")
+    # Element-wise absolute difference, then the mean over all elements.
+    return float(np.mean(np.abs(y_true - y_pred)))
