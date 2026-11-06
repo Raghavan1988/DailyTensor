@@ -1,13 +1,16 @@
 import numpy as np
 
+
 def manhattan(x, y):
     """
-    Compute the Euclidean (L2) distance between vectors x and y.
+    Compute the Manhattan (L1) distance between vectors x and y:
+
+        d(x, y) = sum_i |x_i - y_i|
+
     Must return a float.
     """
-    X = np.array(x)
-    Y = np.array(y)
-    dist = np.sum(np.abs(X-Y)).item()
-
-
-    return dist
+    X = np.asarray(x, dtype=np.float64)
+    Y = np.asarray(y, dtype=np.float64)
+    if X.shape != Y.shape:
+        raise ValueError(f"shape mismatch: {X.shape} vs {Y.shape}")
+    return float(np.sum(np.abs(X - Y)))
