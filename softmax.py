@@ -13,7 +13,9 @@ Requirements:
   3. Be numerically stable: exp(1000) overflows. Use the standard trick of
      subtracting the max value along `axis` before exponentiating.
      (Hint: this does NOT change the result mathematically.)
-  4. Return a float64 NumPy array. Each slice along `axis` must sum to 1.
+  4. Return a float64 NumPy array. Each slice along `axis` must sum to 1,
+     except a fully-masked slice (all -inf), which returns all zeros
+     instead of NaN.
 
 Examples:
     >>> softmax([1.0, 2.0, 3.0])
@@ -33,8 +35,13 @@ def softmax(x, axis=-1):
     # Convert input (list / 1D / 2D) to a float64 NumPy array so math is vectorized and precise.
     x = np.asarray(x, dtype=np.float64)
     # Subtract the max along `axis` for numerical stability; keepdims=True preserves shape for broadcasting.
-    x_shifted = x - np.max(x, axis=axis, keepdims=True)
+    x_max = np.max(x, axis=axis, keepdims=True)
+    # A fully-masked slice has max = -inf, and (-inf) - (-inf) = NaN; shift those slices by 0 instead.
+    x_max = np.where(np.isneginf(x_max), 0.0, x_max)
+    x_shifted = x - x_max
     # Exponentiate the shifted values; max of x_shifted is 0, so exp() can't overflow.
     exps = np.exp(x_shifted)
     # Normalize by the sum along `axis` so each slice sums to 1; keepdims=True lets it broadcast across rows/cols.
-    return exps / np.sum(exps, axis=axis, keepdims=True)
+    denom = np.sum(exps, axis=axis, keepdims=True)
+    # Fully-masked slices have denom 0 — return zeros there rather than 0/0 = NaN.
+    return np.divide(exps, denom, out=np.zeros_like(exps), where=denom > 0)
