@@ -21,12 +21,20 @@ Example:
     >>> x = np.zeros((2, 5, 8))
     >>> split_heads(x, num_heads=4).shape
     (2, 4, 5, 2)
+    >>> merge_heads(split_heads(x, num_heads=4)).shape
+    (2, 5, 8)
 """
 
 import numpy as np
+
+
 def split_heads(x, num_heads):
     # Convert input to a float64 array so downstream math is consistent.
     x = np.asarray(x, dtype=np.float64)
+    if x.ndim != 3:
+        raise ValueError(f"expected x of shape (batch, seq, d_model), got {x.shape}")
+    if num_heads <= 0:
+        raise ValueError(f"num_heads must be positive, got {num_heads}")
     batch, seq, d_model = x.shape
     # Each head must get a clean integer slice of the feature dimension.
     if d_model % num_heads != 0:
@@ -36,3 +44,13 @@ def split_heads(x, num_heads):
     x = x.reshape(batch, seq, num_heads, d_head)
     # Move the head axis next to batch so each head sees an independent (seq, d_head) slice.
     return x.transpose(0, 2, 1, 3)
+
+
+def merge_heads(x):
+    """Inverse of split_heads: (batch, num_heads, seq, d_head) -> (batch, seq, d_model)."""
+    x = np.asarray(x, dtype=np.float64)
+    if x.ndim != 4:
+        raise ValueError(f"expected x of shape (batch, num_heads, seq, d_head), got {x.shape}")
+    batch, num_heads, seq, d_head = x.shape
+    # Bring seq back next to batch, then fuse (num_heads, d_head) into d_model.
+    return x.transpose(0, 2, 1, 3).reshape(batch, seq, num_heads * d_head)
