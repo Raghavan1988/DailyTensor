@@ -10,6 +10,7 @@ Requirements:
   1. Accept a Python list, 1D array, or 2D array.
   2. Return a float64 NumPy array with the same shape as the input.
   3. Raise ValueError if low > high.
+  4. Either bound may be None to clip on one side only.
 
 Examples:
     >>> clip_values([-2, 0, 3, 7, 10], low=0, high=5)
@@ -18,6 +19,9 @@ Examples:
     >>> clip_values([[1, 5], [-1, 9]], low=0, high=4)
     array([[1., 4.],
            [0., 4.]])
+
+    >>> clip_values([-3, 2, 8], low=None, high=4)
+    array([-3.,  2.,  4.])
 """
 
 import numpy as np
@@ -25,7 +29,9 @@ import numpy as np
 
 def clip_values(x, low, high):
     # Validate the range — clipping with low > high would silently produce nonsense.
-    if low > high:
+    if low is None and high is None:
+        raise ValueError("at least one of low or high must be given")
+    if low is not None and high is not None and low > high:
         raise ValueError(f"low ({low}) must be <= high ({high})")
     # Convert input to a float64 NumPy array so the result is consistent across input types.
     x = np.asarray(x, dtype=np.float64)
